@@ -1,5 +1,5 @@
 from sqlalchemy import create_engine
-from models import Base, Hotel, FaqChunk
+from models import Base, FaqChunk
 from sqlalchemy.orm import sessionmaker
 import json
 

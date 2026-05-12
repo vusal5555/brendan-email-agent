@@ -1,23 +1,34 @@
-from sqlalchemy import Column, String, Integer, ForeignKey
-from sqlalchemy.orm import declarative_base
+from sqlalchemy import Column, String, Integer, Text, DateTime, UniqueConstraint, Index
 from pgvector.sqlalchemy import Vector
+from sqlalchemy import func
+from sqlalchemy.orm import DeclarativeBase
 
-Base = declarative_base()
 
-
-class Hotel(Base):
-    __tablename__ = "hotels"
-    hotel_code = Column(String, primary_key=True)
-    name = Column(String)
-    default_language = Column(String)
+class Base(DeclarativeBase):
+    pass
 
 
 class FaqChunk(Base):
     __tablename__ = "faq_chunks"
     id = Column(Integer, primary_key=True)
-    hotel_code = Column(String, ForeignKey("hotels.hotel_code"), index=True)
-    question = Column(String)
-    answer = Column(String)
-    content = Column(String)
-    embedding = Column(Vector(384))
-    language = Column(String)
+    hotel_code = Column(String(10), index=True)
+    question = Column(Text, nullable=True)
+    answer = Column(Text, nullable=True)
+    embedding = Column(Vector(1024))
+    language = Column(String(2), nullable=False)
+    source_id = Column(Integer)
+    embedding_input = Column(Text, nullable=True)
+    embedding_model = Column(String(255))
+    source_updated_at = Column(DateTime, nullable=True)
+    ingested_at = Column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("source_id", "language", name="uix_hotel_source_language"),
+        Index(
+            "idx_hnsw_embedding",
+            embedding,
+            postgresql_using="hnsw",
+            postgresql_with={"m": 16, "ef_construction": 64},
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
+    )

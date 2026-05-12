@@ -1,8 +1,10 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from pydantic import BaseModel
 from retrieve import retrieve_faqs
 from classifier import classify_question
 from generate import email_agent
+from db import get_db
+from sqlalchemy.orm import Session
 
 
 class AnswerRequest(BaseModel):
@@ -13,7 +15,6 @@ class AnswerRequest(BaseModel):
 class AnswerResponse(BaseModel):
     answer: str
     confidence: float
-    source_chunks: list[str]
 
 
 app = FastAPI()
@@ -25,7 +26,7 @@ def read_root():
 
 
 @app.post("/answer")
-def answer(request: AnswerRequest):
+def answer(request: AnswerRequest, db: Session = Depends(get_db)):
 
     classification = classify_question(request.question)
 
@@ -41,7 +42,7 @@ def answer(request: AnswerRequest):
     all_faqs = []
 
     for question in extracted_questions:
-        faqs = retrieve_faqs(question, request.hotel_code)
+        faqs = retrieve_faqs(question, request.hotel_code, db)
         all_faqs.extend(faqs)
 
     if len(all_faqs) == 0:
@@ -56,5 +57,4 @@ def answer(request: AnswerRequest):
     return AnswerResponse(
         answer=answer,
         confidence=0.0,
-        source_chunks=[faq.content for faq in all_faqs],
     )
