@@ -29,10 +29,10 @@ FAQ Context: {faq_chunks}
 
 
 def email_agent(
-    question: str, extracted_questions: list[str], faq_chunks: list[FaqChunk]
+    question: str, extracted_questions: list[str], chunks: list[FaqChunk]
 ) -> str:
 
-    faqs = "\n".join([faq.content for faq in faq_chunks])
+    faqs = "\n".join([chunk.embedding_input for chunk in chunks])
     response = client.chat.completions.create(
         model="gpt-5.4",
         temperature=0,

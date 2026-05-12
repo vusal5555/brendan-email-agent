@@ -7,10 +7,11 @@ def retrieve_faqs(query, hotel_code, db: Session, k=3):
 
     embedding = embed_text(query)
 
+    distance = FaqChunk.embedding.cosine_distance(embedding).label("distance")
     faqs = (
-        db.query(FaqChunk)
+        db.query(FaqChunk, distance)
         .filter(FaqChunk.hotel_code == hotel_code)
-        .order_by(FaqChunk.embedding.cosine_distance(embedding))
+        .order_by(distance)
         .limit(k)
         .all()
     )

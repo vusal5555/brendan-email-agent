@@ -34,7 +34,6 @@ def answer(request: AnswerRequest, db: Session = Depends(get_db)):
         return AnswerResponse(
             answer="No answer found",
             confidence=0.0,
-            source_chunks=[],
         )
 
     extracted_questions = classification["extracted_questions"]
@@ -49,12 +48,21 @@ def answer(request: AnswerRequest, db: Session = Depends(get_db)):
         return AnswerResponse(
             answer="No answer found",
             confidence=0.0,
-            source_chunks=[],
         )
 
-    answer = email_agent(request.question, extracted_questions, all_faqs)
+    chunks = [item[0] for item in all_faqs]
+    distances = [item[1] for item in all_faqs]
+    confidence = 1 - min(distances)
+
+    if confidence < 0.4:
+        return AnswerResponse(
+            answer="I will forward this question to the hotel reception.",
+            confidence=confidence,
+        )
+
+    answer = email_agent(request.question, extracted_questions, chunks)
 
     return AnswerResponse(
         answer=answer,
-        confidence=0.0,
+        confidence=confidence,
     )
