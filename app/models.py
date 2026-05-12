@@ -11,7 +11,7 @@ class Base(DeclarativeBase):
 class FaqChunk(Base):
     __tablename__ = "faq_chunks"
     id = Column(Integer, primary_key=True)
-    hotel_code = Column(String(10), index=True)
+    hotel_code = Column(String(50), index=True)
     question = Column(Text, nullable=True)
     answer = Column(Text, nullable=True)
     embedding = Column(Vector(1024))
