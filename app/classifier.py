@@ -1,7 +1,11 @@
-from openai import OpenAI
+from openai import OpenAI, RateLimitError, APIConnectionError, APITimeoutError
 from dotenv import load_dotenv
 import os
 import json
+from tenacity import retry
+from tenacity.stop import stop_after_attempt
+from tenacity.wait import wait_exponential
+from tenacity.retry import retry_if_exception_type
 
 load_dotenv()
 
@@ -123,6 +127,13 @@ Output: "json {
 """
 
 
+@retry(
+    retry=retry_if_exception_type(
+        (RateLimitError, APIConnectionError, APITimeoutError)
+    ),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=15),
+)
 def classify_question(question: str) -> dict:
     response = client.chat.completions.create(
         model="gpt-4o-mini",

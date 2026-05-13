@@ -1,7 +1,11 @@
-from openai import OpenAI
+from openai import OpenAI, RateLimitError, APIConnectionError, APITimeoutError
 from dotenv import load_dotenv
 import os
 from models import FaqChunk
+from tenacity import retry
+from tenacity.stop import stop_after_attempt
+from tenacity.wait import wait_exponential
+from tenacity.retry import retry_if_exception_type
 
 load_dotenv()
 
@@ -29,6 +33,13 @@ FAQ Context: {faq_chunks}
 """
 
 
+@retry(
+    retry=retry_if_exception_type(
+        (RateLimitError, APIConnectionError, APITimeoutError)
+    ),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=15),
+)
 def email_agent(
     question: str, extracted_questions: list[str], chunks: list[FaqChunk]
 ) -> str:
