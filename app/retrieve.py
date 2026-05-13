@@ -3,7 +3,7 @@ from models import FaqChunk
 from sqlalchemy.orm import Session
 
 
-def retrieve_faqs(query, hotel_code, db: Session, k=3):
+def retrieve_faqs(query, hotel_code, db: Session, k=3, language="en"):
 
     embedding = embed_text(query)
 
@@ -11,6 +11,7 @@ def retrieve_faqs(query, hotel_code, db: Session, k=3):
     faqs = (
         db.query(FaqChunk, distance)
         .filter(FaqChunk.hotel_code == hotel_code)
+        .filter(FaqChunk.language == language)
         .order_by(distance)
         .limit(k)
         .all()
