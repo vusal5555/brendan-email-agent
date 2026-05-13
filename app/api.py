@@ -5,7 +5,12 @@ from classifier import classify_question
 from generate import email_agent
 from db import get_db
 from sqlalchemy.orm import Session
+import logging
+from datetime import datetime
+import json
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 language_forward = {
     "en": "I will forward this question to the hotel reception.",
@@ -40,52 +45,80 @@ def read_root():
 def answer(request: AnswerRequest, db: Session = Depends(get_db)):
 
     try:
+        start_time = datetime.now()
+        detected_language = None
+        extracted_questions = []
+        top_chunk_distance = None
+        did_forward = False
+        result_answer = "No answer found"
+        confidence = 0.0
+
         if request.question.strip() == "":
-            return AnswerResponse(
-                answer="No question provided",
-                confidence=0.0,
+            result_answer = "No question provided"
+        else:
+            classification = classify_question(request.question)
+
+            if not classification["has_questions"]:
+                result_answer = "No answer found"
+            else:
+                extracted_questions = classification["extracted_questions"]
+                detected_language = classification["language"]
+
+                all_faqs = []
+
+                for question in extracted_questions:
+                    faqs = retrieve_faqs(
+                        question, request.hotel_code, db, language=detected_language
+                    )
+                    all_faqs.extend(faqs)
+
+                if len(all_faqs) == 0:
+                    result_answer = "No answer found"
+                else:
+                    chunks = [item[0] for item in all_faqs]
+                    distances = [item[1] for item in all_faqs]
+                    top_chunk_distance = min(distances)
+                    confidence = 1 - min(distances)
+
+                    if confidence < 0.4:
+                        did_forward = True
+                        result_answer = language_forward.get(
+                            detected_language,
+                            "I will forward this question to the hotel reception.",
+                        )
+                    else:
+                        result_answer = email_agent(
+                            request.question, extracted_questions, chunks
+                        )
+
+        logger.info(
+            json.dumps(
+                {
+                    "hotel_code": request.hotel_code,
+                    "extracted_questions": extracted_questions,
+                    "detected_language": detected_language,
+                    "top_chunk_distance": top_chunk_distance,
+                    "did_forward": did_forward,
+                    "response_time": (datetime.now() - start_time).total_seconds()
+                    * 1000,
+                }
             )
-
-        classification = classify_question(request.question)
-
-        if not classification["has_questions"]:
-            return AnswerResponse(
-                answer="No answer found",
-                confidence=0.0,
-            )
-
-        extracted_questions = classification["extracted_questions"]
-        language = classification["language"]
-
-        all_faqs = []
-
-        for question in extracted_questions:
-            faqs = retrieve_faqs(question, request.hotel_code, db, language=language)
-            all_faqs.extend(faqs)
-
-        if len(all_faqs) == 0:
-            return AnswerResponse(
-                answer="No answer found",
-                confidence=0.0,
-            )
-
-        chunks = [item[0] for item in all_faqs]
-        distances = [item[1] for item in all_faqs]
-        confidence = 1 - min(distances)
-
-        if confidence < 0.4:
-            return AnswerResponse(
-                answer=language_forward.get(
-                    language, "I will forward this question to the hotel reception."
-                ),
-                confidence=confidence,
-            )
-
-        answer = email_agent(request.question, extracted_questions, chunks)
+        )
 
         return AnswerResponse(
-            answer=answer,
+            answer=result_answer,
             confidence=confidence,
         )
+
     except Exception:
+        logger.error(
+            json.dumps(
+                {
+                    "hotel_code": request.hotel_code,
+                    "question": request.question,
+                    "response_time": (datetime.now() - start_time).total_seconds()
+                    * 1000,
+                }
+            )
+        )
         raise HTTPException(status_code=500, detail="Service temporarily unavailable")
