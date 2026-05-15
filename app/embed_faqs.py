@@ -1,23 +1,22 @@
-from openai import OpenAI
 from dotenv import load_dotenv
-import os
+import json
+from aws_bedrock import get_bedrock_client
 
 load_dotenv()
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+client = get_bedrock_client()
 
 
 def embed_text(text):
-    response = client.embeddings.create(
-        input=text, model="text-embedding-3-small", dimensions=1024
+    response = client.invoke_model(
+        modelId="amazon.titan-embed-text-v2:0",
+        body=json.dumps({"inputText": text, "dimensions": 1024, "normalize": True}),
     )
-    embeddings = response.data[0].embedding
+    embeddings = json.loads(response["body"].read())["embedding"]
     return embeddings
 
 
-def embed_faqs(text):
-    response = client.embeddings.create(
-        input=text, model="text-embedding-3-small", dimensions=1024
-    )
-    embeddings = [item.embedding for item in response.data]
+def embed_faqs(text_list):
+    embeddings = [embed_text(text) for text in text_list]
     return embeddings

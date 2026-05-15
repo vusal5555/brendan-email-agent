@@ -1,15 +1,15 @@
-from openai import OpenAI, RateLimitError, APIConnectionError, APITimeoutError
+from botocore.exceptions import ClientError
 from dotenv import load_dotenv
-import os
-import json
 from tenacity import retry
 from tenacity.stop import stop_after_attempt
 from tenacity.wait import wait_exponential
 from tenacity.retry import retry_if_exception_type
+from aws_bedrock import get_bedrock_client
 
 load_dotenv()
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = get_bedrock_client()
+
 
 system_prompt = """
 Role: You analyze incoming hotel guest emails to determine if they contain questions.
@@ -126,22 +126,60 @@ Output: "json {
 
 """
 
+tool_config = {
+    "tools": [
+        {
+            "toolSpec": {
+                "name": "classify_email",
+                "description": "Classify a hotel guest email and extract any questions.",
+                "inputSchema": {
+                    "json": {
+                        "type": "object",
+                        "properties": {
+                            "has_questions": {
+                                "type": "boolean",
+                                "description": "True if the email contains questions about hotel services, policies, or amenities",
+                            },
+                            "extracted_questions": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Questions extracted in the same language as the email. Empty array if none.",
+                            },
+                            "language": {
+                                "type": "string",
+                                "description": "ISO 639-1 language code (e.g. 'en', 'de', 'es', 'fr')",
+                            },
+                        },
+                        "required": [
+                            "has_questions",
+                            "extracted_questions",
+                            "language",
+                        ],
+                    }
+                },
+            }
+        }
+    ],
+    "toolChoice": {"tool": {"name": "classify_email"}},  # force the tool call
+}
+
 
 @retry(
-    retry=retry_if_exception_type(
-        (RateLimitError, APIConnectionError, APITimeoutError)
-    ),
+    retry=retry_if_exception_type(ClientError),
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=4, max=15),
 )
 def classify_question(question: str) -> dict:
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        temperature=0,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": question},
-        ],
-        response_format={"type": "json_object"},
+
+    response = client.converse(
+        modelId="eu.amazon.nova-micro-v1:0",
+        system=[{"text": system_prompt}],
+        messages=[{"role": "user", "content": [{"text": question}]}],
+        inferenceConfig={"temperature": 0, "maxTokens": 500},
+        toolConfig=tool_config,
     )
-    return json.loads(response.choices[0].message.content)
+    for block in response["output"]["message"]["content"]:
+        if "toolUse" in block:
+            return block["toolUse"]["input"]
+
+    raise ValueError("Model did not return a tool call")

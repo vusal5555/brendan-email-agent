@@ -19,14 +19,6 @@ import argparse
 import json
 from dataclasses import dataclass, field
 from enum import Enum
-from app.classifier import classify_question
-from app.retrieve import retrieve_faqs
-from app.generate import email_agent
-from app.db import Session
-from app.api import language_forward
-from app.models import FaqChunk
-from sqlalchemy import func
-
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "app"))
 
@@ -442,10 +434,27 @@ TEST_CASES: list[TestCase] = [
 # ---------------------------------------------------------------------------
 
 
-FORWARD_PHRASES = [msg.lower() for msg in language_forward.values()]
+FORWARD_PHRASES = [
+    "forward",
+    "weiterleiten",
+    "reenviar",
+    "transmettre",
+    "rivolger",
+    "enviar",
+    "recepción",
+    "reception",
+    "réceptionniste",
+    "ricevitore",
+    "recepcionista",
+    "Hotelrezeption",
+]
 
 
 def run_direct(test_case: TestCase) -> TestResult:
+    from classifier import classify_question
+    from retrieve import retrieve_faqs
+    from generate import email_agent
+    from db import Session
 
     start = time.time()
     failures = []
@@ -559,6 +568,8 @@ def run_direct(test_case: TestCase) -> TestResult:
 
     if confidence < 0.4:
         actual_action = "forward"
+        from api import language_forward
+
         response_text = language_forward.get(language, language_forward["en"])
     else:
         actual_action = "answer"
@@ -765,6 +776,9 @@ def print_summary(results: list[TestResult]):
 
 def discover_hotels():
     """Query the database to show hotel codes and their FAQ counts per language."""
+    from db import Session
+    from models import FaqChunk
+    from sqlalchemy import func
 
     session = Session()
     try:

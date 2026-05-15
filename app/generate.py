@@ -1,15 +1,13 @@
-from openai import OpenAI, RateLimitError, APIConnectionError, APITimeoutError
-from dotenv import load_dotenv
-import os
 from models import FaqChunk
+from botocore.exceptions import ClientError
 from tenacity import retry
 from tenacity.stop import stop_after_attempt
 from tenacity.wait import wait_exponential
 from tenacity.retry import retry_if_exception_type
+from aws_bedrock import get_bedrock_client
 
-load_dotenv()
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = get_bedrock_client()
 
 system_prompt = """
 
@@ -34,9 +32,7 @@ FAQ Context: {faq_chunks}
 
 
 @retry(
-    retry=retry_if_exception_type(
-        (RateLimitError, APIConnectionError, APITimeoutError)
-    ),
+    retry=retry_if_exception_type((ClientError)),
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=4, max=15),
 )
@@ -45,19 +41,28 @@ def email_agent(
 ) -> str:
 
     faqs = "\n".join([chunk.embedding_input for chunk in chunks])
-    response = client.chat.completions.create(
-        model="gpt-5.4",
-        temperature=0,
+    response = client.converse(
+        modelId="eu.anthropic.claude-haiku-4-5-20251001-v1:0",
+        system=[{"text": system_prompt}],
         messages=[
-            {"role": "system", "content": system_prompt},
             {
                 "role": "user",
-                "content": user_message.format(
-                    question=question,
-                    extracted_questions=extracted_questions,
-                    faq_chunks=faqs,
-                ),
-            },
+                "content": [
+                    {
+                        "text": user_message.format(
+                            question=question,
+                            extracted_questions=extracted_questions,
+                            faq_chunks=faqs,
+                        )
+                    }
+                ],
+            }
         ],
+        inferenceConfig={"temperature": 0, "maxTokens": 500},
     )
-    return response.choices[0].message.content
+
+    assistant_message = response["output"]["message"]
+    for block in assistant_message["content"]:
+        if "text" in block:
+            return block["text"]
+    raise ValueError("Model did not return a text block")

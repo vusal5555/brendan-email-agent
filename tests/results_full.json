@@ -9,7 +9,7 @@
     "actual_action": "answer",
     "actual_confidence": 0.5970956765716823,
     "response_text": "Yes, parking is available. It costs \u20ac15 per night per car.",
-    "duration_ms": 702.1570205688477
+    "duration_ms": 4264.134407043457
   },
   {
     "name": "DE - German breakfast question (forward, no DE FAQs)",
@@ -21,7 +21,7 @@
     "actual_action": "forward",
     "actual_confidence": 0.0,
     "response_text": "No FAQs found - would forward",
-    "duration_ms": 1678.2023906707764
+    "duration_ms": 1682.1272373199463
   },
   {
     "name": "ES - Spanish pool question (forward, no ES FAQs)",
@@ -33,7 +33,7 @@
     "actual_action": "forward",
     "actual_confidence": 0.0,
     "response_text": "No FAQs found - would forward",
-    "duration_ms": 1777.4157524108887
+    "duration_ms": 1706.4440250396729
   },
   {
     "name": "FR - French check-in question (forward, no FR FAQs)",
@@ -45,7 +45,7 @@
     "actual_action": "forward",
     "actual_confidence": 0.0,
     "response_text": "No FAQs found - would forward",
-    "duration_ms": 1818.6924457550049
+    "duration_ms": 1890.5949592590332
   },
   {
     "name": "IT - Italian Wi-Fi question (forward, no IT FAQs)",
@@ -57,7 +57,7 @@
     "actual_action": "forward",
     "actual_confidence": 0.0,
     "response_text": "No FAQs found - would forward",
-    "duration_ms": 1171.482801437378
+    "duration_ms": 1409.6167087554932
   },
   {
     "name": "PT - Portuguese pet question (forward, no PT FAQs)",
@@ -69,7 +69,7 @@
     "actual_action": "forward",
     "actual_confidence": 0.0,
     "response_text": "No FAQs found - would forward",
-    "duration_ms": 1453.2644748687744
+    "duration_ms": 1398.4498977661133
   },
   {
     "name": "CA - Catalan transfer question (forward, no CA FAQs)",
@@ -81,7 +81,7 @@
     "actual_action": "forward",
     "actual_confidence": 0.0,
     "response_text": "No FAQs found - would forward",
-    "duration_ms": 1228.2140254974365
+    "duration_ms": 1097.6109504699707
   },
   {
     "name": "Rich hotel - breakfast question (EURMAR, 455 FAQs)",
@@ -91,9 +91,9 @@
     "actual_language": "en",
     "actual_question_count": 2,
     "actual_action": "answer",
-    "actual_confidence": 0.69596260343329,
+    "actual_confidence": 0.6959706196897996,
     "response_text": "Breakfast includes breads, fresh pastries, seasonal fruit, sausages, cold cuts, cereals, coffee, milk, juice, and a regional corner.\n\nIt is served Monday to Friday from 7:30 to 10:30 a.m., and on week",
-    "duration_ms": 4602.562189102173
+    "duration_ms": 3514.106035232544
   },
   {
     "name": "Medium hotel - spa question (EURETH, 97 FAQs)",
@@ -105,7 +105,7 @@
     "actual_action": "answer",
     "actual_confidence": 0.7830212923382857,
     "response_text": "Yes, children are allowed at the spa from 16 years old. The minimum age is 16.",
-    "duration_ms": 3738.3553981781006
+    "duration_ms": 5004.4519901275635
   },
   {
     "name": "Thin hotel - parking question (AT10001, 15 FAQs)",
@@ -117,7 +117,7 @@
     "actual_action": "answer",
     "actual_confidence": 0.7840030492331908,
     "response_text": "The hotel does not have its own parking space.",
-    "duration_ms": 2673.8274097442627
+    "duration_ms": 2855.8573722839355
   },
   {
     "name": "Sparse hotel - obscure question (AMBERRA, 4 FAQs)",
@@ -127,21 +127,23 @@
     "actual_language": "en",
     "actual_question_count": 1,
     "actual_action": "forward",
-    "actual_confidence": 0.30013153333793374,
+    "actual_confidence": 0.30015753646919363,
     "response_text": "I will forward this question to the hotel reception.",
-    "duration_ms": 1471.3449478149414
+    "duration_ms": 1855.6263446807861
   },
   {
     "name": "Booking + question mix",
     "category": "classifier_booking+question",
-    "passed": true,
-    "failures": [],
+    "passed": false,
+    "failures": [
+      "action: expected=answer, got=forward (confidence=0.750)"
+    ],
     "actual_language": "en",
     "actual_question_count": 1,
-    "actual_action": "answer",
+    "actual_action": "forward",
     "actual_confidence": 0.7504509739342241,
     "response_text": "Yes, we offer private transfers through an external company. The price is \u20ac36 for up to 4 people. Please contact reception to arrange it.",
-    "duration_ms": 3250.311851501465
+    "duration_ms": 13.360977172851562
   },
   {
     "name": "Indirect statement implying questions",
@@ -153,7 +155,7 @@
     "actual_action": "answer",
     "actual_confidence": 0.7531089032768669,
     "response_text": "Parking is accessed via 2 Dina Moore Street. Simply ring the intercom and the gate will open for secure parking. We do not offer room service.",
-    "duration_ms": 957.4446678161621
+    "duration_ms": 3509.889841079712
   },
   {
     "name": "Buried question in long email",
@@ -165,7 +167,7 @@
     "actual_action": "answer",
     "actual_confidence": 0.8647289780298948,
     "response_text": "Yes, early check-in is possible, subject to availability.",
-    "duration_ms": 2882.3883533477783
+    "duration_ms": 8302.822828292847
   },
   {
     "name": "Mixed-language email (DE dominant with EN question)",
@@ -177,7 +179,7 @@
     "actual_action": "forward",
     "actual_confidence": 0.0,
     "response_text": "No FAQs found - would forward",
-    "duration_ms": 1080.3277492523193
+    "duration_ms": 1503.4518241882324
   },
   {
     "name": "Pure thanks - no question",
@@ -189,7 +191,7 @@
     "actual_action": "no_questions",
     "actual_confidence": 0.0,
     "response_text": "No answer found",
-    "duration_ms": 978.1045913696289
+    "duration_ms": 867.1305179595947
   },
   {
     "name": "Complaint with no question",
@@ -201,19 +203,21 @@
     "actual_action": "no_questions",
     "actual_confidence": 0.0,
     "response_text": "No answer found",
-    "duration_ms": 1458.946943283081
+    "duration_ms": 1047.8918552398682
   },
   {
     "name": "Multi-question: 2 topics (breakfast + transfers)",
     "category": "multi_question",
-    "passed": true,
-    "failures": [],
+    "passed": false,
+    "failures": [
+      "action: expected=answer, got=forward (confidence=0.729)"
+    ],
     "actual_language": "en",
     "actual_question_count": 2,
-    "actual_action": "answer",
-    "actual_confidence": 0.7292632672460494,
+    "actual_action": "forward",
+    "actual_confidence": 0.7293118788292243,
     "response_text": "Breakfast is served Monday to Friday from 7:30 to 10:30 a.m., and on weekends and holidays from 8:00 to 11:00 a.m.\n\nYes, private airport transport is available through an external company for \u20ac36 for ",
-    "duration_ms": 4125.285625457764
+    "duration_ms": 3797.847032546997
   },
   {
     "name": "Multi-question: 3 topics (parking + pets + checkout)",
@@ -225,7 +229,7 @@
     "actual_action": "answer",
     "actual_confidence": 0.7610712574059506,
     "response_text": "Hi! Yes, parking is available for \u20ac15 per day per car. Pets are not allowed on the premises. Check-out is at 12:00 pm.",
-    "duration_ms": 3228.9891242980957
+    "duration_ms": 3195.8281993865967
   },
   {
     "name": "Forward: helicopter tour (no FAQ match)",
@@ -237,7 +241,7 @@
     "actual_action": "forward",
     "actual_confidence": 0.38739140669193184,
     "response_text": "I will forward this question to the hotel reception.",
-    "duration_ms": 1966.1164283752441
+    "duration_ms": 1918.1296825408936
   },
   {
     "name": "Forward: FR on sparse hotel (no FR FAQs + sparse)",
@@ -249,7 +253,7 @@
     "actual_action": "forward",
     "actual_confidence": 0.0,
     "response_text": "No FAQs found - would forward",
-    "duration_ms": 1693.46022605896
+    "duration_ms": 1671.6177463531494
   },
   {
     "name": "Forward: drone flying area (no FAQ match)",
@@ -261,7 +265,7 @@
     "actual_action": "forward",
     "actual_confidence": 0.42075996965595786,
     "response_text": "I will forward this question to the hotel reception.",
-    "duration_ms": 2557.5835704803467
+    "duration_ms": 692.5442218780518
   },
   {
     "name": "Edge: empty email body",
@@ -284,7 +288,7 @@
     "actual_question_count": 1,
     "actual_action": "answer",
     "actual_confidence": 0.6183680455570957,
-    "response_text": "Yes, dogs are allowed at the hotel. There is a charge of EUR 10.00 per pet, per night.",
-    "duration_ms": 2813.1282329559326
+    "response_text": "Yes, dogs are allowed at the hotel. The charge is EUR 10.00 per pet per night.",
+    "duration_ms": 3599.393367767334
   }
 ]

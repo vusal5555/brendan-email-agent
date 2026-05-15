@@ -113,7 +113,7 @@ def get_faqs():
                     source_id=faq["id"],
                     source_updated_at=faq["timestamp"],
                     embedding_input=faq["embedding_input"],
-                    embedding_model="text-embedding-3-small",
+                    embedding_model="amazon.titan-embed-text-v2:0",
                 )
                 .on_conflict_do_update(
                     index_elements=["source_id", "language"],
@@ -122,7 +122,7 @@ def get_faqs():
                         "answer": faq["answer"],
                         "embedding": embedding,
                         "embedding_input": faq["embedding_input"],
-                        "embedding_model": "text-embedding-3-small",
+                        "embedding_model": "amazon.titan-embed-text-v2:0",
                         "source_updated_at": faq["timestamp"],
                     },
                 )
