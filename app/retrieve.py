@@ -3,7 +3,7 @@ from models import FaqChunk
 from sqlalchemy.orm import Session
 
 
-def retrieve_faqs(query, hotel_code, db: Session, k=3, language="en"):
+def retrieve_faqs(query, hotel_code, db: Session, k=7, language="en"):
 
     embedding = embed_text(query)
 

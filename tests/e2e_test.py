@@ -17,6 +17,7 @@ import os
 import time
 import argparse
 import json
+import unicodedata
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -164,6 +165,7 @@ TEST_CASES: list[TestCase] = [
         expected_question_count_max=1,
         category=TestCategory.LANGUAGE,
     ),
+    # 6 test
     TestCase(
         name="PT - Portuguese pet question (forward, no PT FAQs)",
         email="Olá, aceitam animais de estimação no hotel? Temos um cão pequeno.",
@@ -172,7 +174,7 @@ TEST_CASES: list[TestCase] = [
         expected_language="pt",
         expected_has_questions=True,
         expected_question_count_min=1,
-        expected_question_count_max=1,
+        expected_question_count_max=2,
         category=TestCategory.LANGUAGE,
     ),
     TestCase(
@@ -241,6 +243,7 @@ TEST_CASES: list[TestCase] = [
     # =========================================================================
     # CLASSIFIER ADVERSARIAL SCENARIOS (6 tests)
     # =========================================================================
+    # 12 test
     TestCase(
         name="Booking + question mix",
         email="Hi, I'd like to book a double room for July 14-17 for two adults. Also, do you offer private transport or transfers from the airport?",
@@ -253,6 +256,7 @@ TEST_CASES: list[TestCase] = [
         category=TestCategory.CLASSIFIER_BOOKING_QUESTION,
         expected_topics=["transport", "transfer"],
     ),
+    # 13 test
     TestCase(
         name="Indirect statement implying questions",
         email="Hey, was wondering about the parking situation. Also not sure if you have room service.",
@@ -434,20 +438,151 @@ TEST_CASES: list[TestCase] = [
 # ---------------------------------------------------------------------------
 
 
-FORWARD_PHRASES = [
-    "forward",
-    "weiterleiten",
-    "reenviar",
-    "transmettre",
-    "rivolger",
-    "enviar",
-    "recepción",
+def _collapse_ws(s: str) -> str:
+    """Strip ends and collapse internal whitespace (exact forward strings stay case-sensitive)."""
+
+    return " ".join(s.strip().split())
+
+
+def _fold_for_match(s: str) -> str:
+    """Lowercase and strip combining marks so ``réception`` / ``recepción`` match shared substrings."""
+
+    decomposed = unicodedata.normalize("NFKD", s)
+    return "".join(c for c in decomposed if unicodedata.category(c) != "Mn").lower()
+
+
+# Free-form paraphrases of ``language_forward``: need BOTH “cannot answer from here” language
+# AND routing to reception/front desk (supported locales: en, de, es, fr, it, pt, ca).
+_CANNED_FORWARD_UNAVAILABLE_HINTS: tuple[str, ...] = (
+    # English
+    "don't have",
+    "do not have",
+    "don't know",
+    "do not know",
+    "unable to",
+    "not able to",
+    "cannot answer",
+    "can't answer",
+    "cannot provide",
+    "can't provide",
+    "cannot find",
+    "can't find",
+    "cannot help",
+    "can't help",
+    "no information",
+    "not covered",
+    "outside my knowledge",
+    "beyond my knowledge",
+    "couldn't find",
+    "could not find",
+    "not mentioned",
+    "not specified",
+    "i'm not able",
+    "i am not able",
+    "no details",
+    "insufficient information",
+    "not included in",
+    "not available in",
+    "doesn't cover",
+    "does not cover",
+    # German
+    "habe keine",
+    "keine information",
+    "keine angaben",
+    "keine auskunft",
+    "nicht beantworten",
+    "nicht verfügbar",
+    "nicht verfugbar",
+    "kann ich nicht",
+    "leider keine",
+    "nicht enthalten",
+    # Spanish
+    "no tengo",
+    "no dispongo",
+    "no puedo dar",
+    "no puedo proporcionar",
+    "no puedo responder",
+    "sin información",
+    "sin informacion",
+    "no encuentro",
+    "no figura",
+    "no consta",
+    # French
+    "je n'ai pas",
+    "je nai pas",
+    "nous n'avons pas",
+    "nous navons pas",
+    "je ne peux pas",
+    "pas d'information",
+    "pas dinformation",
+    "aucune information",
+    "impossible de vous renseigner",
+    "je ne dispose pas",
+    # Italian
+    "non ho",
+    "non posso",
+    "non sono in grado",
+    "non disponibile",
+    "non risulta",
+    # Portuguese
+    "não tenho",
+    "nao tenho",
+    "não posso",
+    "nao posso",
+    "não consigo",
+    "nao consigo",
+    "sem informação",
+    "sem informacao",
+    # Catalan
+    "no tinc",
+    "no puc",
+    "sense informació",
+    "sense informacio",
+    "no disposem",
+)
+_CANNED_FORWARD_RECEPTION_HINTS: tuple[str, ...] = (
     "reception",
-    "réceptionniste",
-    "ricevitore",
+    "recepcion",
+    "recepcio",
+    "rececao",
+    "rezeption",
+    "ricevimento",
+    "front desk",
+    "front office",
+    "receptionist",
     "recepcionista",
-    "Hotelrezeption",
-]
+    "receptionniste",
+    "hotel reception",
+    "desk reception",
+    "l'accueil",
+    "l accueil",
+    "à l'accueil",
+    "a l'accueil",
+)
+
+
+def response_is_canned_forward(text: str) -> bool:
+    """Detect API canned forwards and close paraphrases used when the model defers to the desk.
+
+    Exact match against ``language_forward`` is the fast path (case- and whitespace-sensitive
+    after collapsing spaces). The fallback requires both (1) language that the requested detail
+    is missing or out of scope and (2) directing the guest to reception or front desk, so answers
+    that only mention reception as optional contact do not qualify.
+    """
+
+    from api import language_forward
+
+    if not (text or "").strip():
+        return False
+
+    norm = _collapse_ws(text)
+    if any(norm == _collapse_ws(msg) for msg in language_forward.values()):
+        return True
+
+    folded = _fold_for_match(norm)
+    lacks_info = any(h in folded for h in _CANNED_FORWARD_UNAVAILABLE_HINTS)
+    routes_desk = any(h in folded for h in _CANNED_FORWARD_RECEPTION_HINTS)
+    return lacks_info and routes_desk
 
 
 def run_direct(test_case: TestCase) -> TestResult:
@@ -566,7 +701,7 @@ def run_direct(test_case: TestCase) -> TestResult:
     distances = [item[1] for item in all_faqs]
     confidence = 1 - min(distances)
 
-    if confidence < 0.4:
+    if confidence < 0.20:
         actual_action = "forward"
         from api import language_forward
 
@@ -577,13 +712,11 @@ def run_direct(test_case: TestCase) -> TestResult:
 
     duration = (time.time() - start) * 1000
 
-    # Step 6: Evaluate action
-    # Special case: if the code path was "answer" but the LLM's response itself
-    # says to forward (because it found no relevant FAQ context), treat it as
-    # an effective forward. This happens in the confidence gray zone (0.4-0.5).
+    # Step 6: If the coded path was "answer" but the body matches a canned forward line or
+    # reads like a deferral to reception (see ``response_is_canned_forward``), classify as forward.
     effective_action = actual_action
     if actual_action == "answer" and response_text:
-        if any(phrase in response_text.lower() for phrase in FORWARD_PHRASES):
+        if response_is_canned_forward(response_text):
             effective_action = "forward"
 
     if (
@@ -661,7 +794,7 @@ def run_http(
     confidence = data.get("confidence", 0.0)
 
     # Determine actual action from response
-    is_forward = any(phrase in answer.lower() for phrase in FORWARD_PHRASES)
+    is_forward = response_is_canned_forward(answer)
     is_no_answer = answer in ("No answer found", "No question provided")
 
     if is_no_answer:

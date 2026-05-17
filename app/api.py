@@ -80,7 +80,7 @@ def answer(request: AnswerRequest, db: Session = Depends(get_db)):
                     top_chunk_distance = min(distances)
                     confidence = 1 - min(distances)
 
-                    if confidence < 0.4:
+                    if confidence < 0.20:
                         did_forward = True
                         result_answer = language_forward.get(
                             detected_language,

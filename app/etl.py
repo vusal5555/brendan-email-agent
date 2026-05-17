@@ -91,7 +91,9 @@ def get_faqs():
                 }
             )
 
-        embedding_input_list = [item["embedding_input"] for item in embedding_list]
+        embedding_input_list = [
+            f"Question: {item['question']}" for item in embedding_list
+        ]
 
         all_embeddings = []
 
@@ -134,3 +136,4 @@ def get_faqs():
 
 if __name__ == "__main__":
     get_faqs()
+    print("FAQs embedded successfully")

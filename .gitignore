@@ -31,3 +31,11 @@ Thumbs.db
 
 # Docker volumes
 pgdata/
+
+
+inspect_retrieval_parking.py
+list_eurmar_questions.py
+pipeline_parking_manual.py
+
+results_full.json
+
