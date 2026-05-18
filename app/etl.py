@@ -18,7 +18,22 @@ parser.add_argument(
     "--languages",
     type=str,
     nargs="+",
-    default=["en", "de", "es", "fr", "it", "pt", "ca"],
+    default=[
+        "en",
+        "de",
+        "es",
+        "fr",
+        "it",
+        "pt",
+        "ca",
+        "da",
+        "hr",
+        "hu",
+        "is",
+        "pl",
+        "sq",
+        "cs",
+    ],
 )
 parser.add_argument(
     "--hotel-code",
@@ -39,19 +54,17 @@ dry_run = args.dry_run
 
 def get_faqs():
 
-    session = Session(engine)
-    conn = connect(
-        host=os.getenv("MYSQL_HOST"),
-        port=int(os.getenv("MYSQL_PORT")),
-        user=os.getenv("MYSQL_USER"),
-        password=os.getenv("MYSQL_PASSWORD"),
-        db=os.getenv("MYSQL_DB"),
-        cursorclass=DictCursor,
-    )
-
-    cursor = conn.cursor()
-
     for lang in languages:
+        conn = connect(
+            host=os.getenv("MYSQL_HOST"),
+            port=int(os.getenv("MYSQL_PORT")),
+            user=os.getenv("MYSQL_USER"),
+            password=os.getenv("MYSQL_PASSWORD"),
+            db=os.getenv("MYSQL_DB"),
+            cursorclass=DictCursor,
+        )
+
+        cursor = conn.cursor()
         params = []
         values = []
         if hotel_code:
@@ -66,6 +79,7 @@ def get_faqs():
         embedding_list = []
         cursor.execute(query, values)
         faqs = cursor.fetchall()
+        conn.close()
 
         for faq in faqs:
             if faq["Question"] is None or faq["Answer"] is None:
@@ -102,36 +116,39 @@ def get_faqs():
             embeddings = embed_faqs(embedding_input_list[i : i + 100])
             all_embeddings.extend(embeddings)
 
-        for faq, embedding in zip(embedding_list, all_embeddings):
-            faq["embedding"] = embedding
-            faq_chunk = (
-                insert(FaqChunk)
-                .values(
-                    hotel_code=faq["hotel_code"],
-                    question=faq["question"],
-                    answer=faq["answer"],
-                    embedding=embedding,
-                    language=lang,
-                    source_id=faq["id"],
-                    source_updated_at=faq["timestamp"],
-                    embedding_input=faq["embedding_input"],
-                    embedding_model="amazon.titan-embed-text-v2:0",
+        session = Session(engine)
+        try:
+            for faq, embedding in zip(embedding_list, all_embeddings):
+                faq["embedding"] = embedding
+                faq_chunk = (
+                    insert(FaqChunk)
+                    .values(
+                        hotel_code=faq["hotel_code"],
+                        question=faq["question"],
+                        answer=faq["answer"],
+                        embedding=embedding,
+                        language=lang,
+                        source_id=faq["id"],
+                        source_updated_at=faq["timestamp"],
+                        embedding_input=faq["embedding_input"],
+                        embedding_model="amazon.titan-embed-text-v2:0",
+                    )
+                    .on_conflict_do_update(
+                        index_elements=["source_id", "language"],
+                        set_={
+                            "question": faq["question"],
+                            "answer": faq["answer"],
+                            "embedding": embedding,
+                            "embedding_input": faq["embedding_input"],
+                            "embedding_model": "amazon.titan-embed-text-v2:0",
+                            "source_updated_at": faq["timestamp"],
+                        },
+                    )
                 )
-                .on_conflict_do_update(
-                    index_elements=["source_id", "language"],
-                    set_={
-                        "question": faq["question"],
-                        "answer": faq["answer"],
-                        "embedding": embedding,
-                        "embedding_input": faq["embedding_input"],
-                        "embedding_model": "amazon.titan-embed-text-v2:0",
-                        "source_updated_at": faq["timestamp"],
-                    },
-                )
-            )
-            session.execute(faq_chunk)
-        session.commit()
-    conn.close()
+                session.execute(faq_chunk)
+            session.commit()
+        finally:
+            session.close()
 
 
 if __name__ == "__main__":

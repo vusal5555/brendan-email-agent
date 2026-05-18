@@ -5,7 +5,7 @@ import os
 
 load_dotenv()
 
-engine = create_engine(os.getenv("DB_URL"))
+engine = create_engine(os.getenv("DB_URL"), pool_pre_ping=True)
 Session = sessionmaker(bind=engine)
 
 

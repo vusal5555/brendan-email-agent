@@ -17,6 +17,7 @@ import os
 import time
 import argparse
 import json
+import re
 import unicodedata
 from dataclasses import dataclass, field
 from enum import Enum
@@ -94,9 +95,9 @@ class TestResult:
 #   AT10001:  15 FAQs (EN) - THIN
 #   AMBERRA:   4 FAQs (EN) - SPARSE
 #
-# IMPORTANT: All FAQs are currently in English only. Non-EN emails will always
-# get forwarded because retrieve_faqs filters by language. Language tests verify
-# that the classifier detects language correctly and the system forwards gracefully.
+# Non-English FAQs exist for many languages; retrieve_faqs uses the detected
+# language. Language tests verify detection plus answer vs forward when chunks
+# exist or confidence / model behavior defers to reception.
 
 RICH_HOTEL = "EURMAR"  # 455 FAQs (EN)
 MEDIUM_HOTEL = "EURETH"  # 97 FAQs (EN)
@@ -106,12 +107,12 @@ SPARSE_HOTEL = "AMBERRA"  # 4 FAQs (EN)
 TEST_CASES: list[TestCase] = [
     # =========================================================================
     # LANGUAGE COVERAGE (7 tests)
-    # Classifier must detect correct language. EN will answer, non-EN will
-    # forward (no non-EN FAQs in DB). Both behaviors are correct.
+    # With localized FAQs, non-EN often answers when retrieval matches; some cases still
+    # forward when detail is missing or ``response_is_canned_forward`` matches a desk handoff.
     # =========================================================================
     TestCase(
         name="EN - parking question",
-        email="Hi, we're arriving on Friday. Is parking available at the hotel and how much does it cost?",
+        email="Hi, do you have parking available at the hotel? What is the daily rate per car?",
         hotel_code=RICH_HOTEL,
         expected_action=ExpectedAction.ANSWER,
         expected_language="en",
@@ -122,18 +123,19 @@ TEST_CASES: list[TestCase] = [
         expected_topics=["parking"],
     ),
     TestCase(
-        name="DE - German breakfast question (forward, no DE FAQs)",
+        name="DE - German breakfast question (DE FAQs)",
         email="Guten Tag, wann wird das Frühstück serviert und was kostet es?",
         hotel_code=RICH_HOTEL,
-        expected_action=ExpectedAction.FORWARD,
+        expected_action=ExpectedAction.ANSWER,
         expected_language="de",
         expected_has_questions=True,
         expected_question_count_min=1,
         expected_question_count_max=2,
         category=TestCategory.LANGUAGE,
+        expected_topics=["frühstück", "breakfast"],
     ),
     TestCase(
-        name="ES - Spanish pool question (forward, no ES FAQs)",
+        name="ES - Spanish pool question (partial FAQ + forward on schedule)",
         email="Hola, ¿tiene el hotel piscina? ¿Cuál es el horario?",
         hotel_code=RICH_HOTEL,
         expected_action=ExpectedAction.FORWARD,
@@ -144,53 +146,57 @@ TEST_CASES: list[TestCase] = [
         category=TestCategory.LANGUAGE,
     ),
     TestCase(
-        name="FR - French check-in question (forward, no FR FAQs)",
+        name="FR - French check-in question (FR FAQs)",
         email="Bonjour, à quelle heure est le check-in? Merci d'avance.",
         hotel_code=RICH_HOTEL,
-        expected_action=ExpectedAction.FORWARD,
+        expected_action=ExpectedAction.ANSWER,
         expected_language="fr",
         expected_has_questions=True,
         expected_question_count_min=1,
         expected_question_count_max=1,
         category=TestCategory.LANGUAGE,
+        expected_topics=["check-in", "check in", "15h", "15:00", "15h00"],
     ),
     TestCase(
-        name="IT - Italian Wi-Fi question (forward, no IT FAQs)",
+        name="IT - Italian Wi-Fi question (sparse Wi-Fi FAQ coverage)",
         email="Salve, c'è il Wi-Fi gratuito nelle camere? Grazie.",
         hotel_code=RICH_HOTEL,
-        expected_action=ExpectedAction.FORWARD,
+        expected_action=ExpectedAction.ANSWER,
         expected_language="it",
         expected_has_questions=True,
         expected_question_count_min=1,
         expected_question_count_max=1,
         category=TestCategory.LANGUAGE,
+        expected_topics=["wifi", "wi-fi", "internet", "reception", "recezione"],
     ),
     # 6 test
     TestCase(
-        name="PT - Portuguese pet question (forward, no PT FAQs)",
+        name="PT - Portuguese pet question (PT FAQs)",
         email="Olá, aceitam animais de estimação no hotel? Temos um cão pequeno.",
         hotel_code=RICH_HOTEL,
-        expected_action=ExpectedAction.FORWARD,
+        expected_action=ExpectedAction.ANSWER,
         expected_language="pt",
         expected_has_questions=True,
         expected_question_count_min=1,
         expected_question_count_max=2,
         category=TestCategory.LANGUAGE,
+        expected_topics=["animais", "estimação", "permitid", "não"],
     ),
     TestCase(
-        name="CA - Catalan transfer question (forward, no CA FAQs)",
+        name="CA - Catalan airport transfer question (CA FAQs)",
         email="Bon dia, oferiu servei de transfer des de l'aeroport? Gràcies.",
         hotel_code=RICH_HOTEL,
-        expected_action=ExpectedAction.FORWARD,
+        expected_action=ExpectedAction.ANSWER,
         expected_language="ca",
         expected_has_questions=True,
         expected_question_count_min=1,
         expected_question_count_max=1,
         category=TestCategory.LANGUAGE,
+        expected_topics=["transfer", "trasllat", "aeroport", "36"],
     ),
     # =========================================================================
     # HOTEL COVERAGE TIERS (4 tests)
-    # All in EN since that's the only language with FAQ data.
+    # English questions across hotels with different EN FAQ depth.
     # Tests that richer hotels answer while sparser ones forward.
     # =========================================================================
     TestCase(
@@ -485,17 +491,14 @@ _CANNED_FORWARD_UNAVAILABLE_HINTS: tuple[str, ...] = (
     "not available in",
     "doesn't cover",
     "does not cover",
-    # German
+    # German — short substrings like "leider keine" / "nicht enthalten" match factual
+    # negatives in real FAQ answers (e.g. "leider keine zusätzlichen Kosten", "im Preis nicht enthalten").
+    # Keep assistant-deferral / inability phrasing only.
     "habe keine",
     "keine information",
-    "keine angaben",
     "keine auskunft",
     "nicht beantworten",
-    "nicht verfügbar",
-    "nicht verfugbar",
     "kann ich nicht",
-    "leider keine",
-    "nicht enthalten",
     # Spanish
     "no tengo",
     "no dispongo",
@@ -561,6 +564,21 @@ _CANNED_FORWARD_RECEPTION_HINTS: tuple[str, ...] = (
 )
 
 
+def _folded_matches_unavailable_hint(folded: str, hint: str) -> bool:
+    """Substring match for deferral hints, with escapes for common false positives."""
+
+    # ``keine information`` is a substring of factual ``keine informationen ...`` in German FAQs.
+    if hint == "keine information":
+        return re.search(r"keine information(?!en)", folded) is not None
+    # Avoid matching "ich habe keine zusätzlichen ..." (factual negation) — require a deferral object.
+    if hint == "habe keine":
+        return re.search(
+            r"\bhabe keine\s+(?:informationen|information\b|auskunft|daten|antwort)\b",
+            folded,
+        ) is not None
+    return hint in folded
+
+
 def response_is_canned_forward(text: str) -> bool:
     """Detect API canned forwards and close paraphrases used when the model defers to the desk.
 
@@ -580,7 +598,10 @@ def response_is_canned_forward(text: str) -> bool:
         return True
 
     folded = _fold_for_match(norm)
-    lacks_info = any(h in folded for h in _CANNED_FORWARD_UNAVAILABLE_HINTS)
+    lacks_info = any(
+        _folded_matches_unavailable_hint(folded, h)
+        for h in _CANNED_FORWARD_UNAVAILABLE_HINTS
+    )
     routes_desk = any(h in folded for h in _CANNED_FORWARD_RECEPTION_HINTS)
     return lacks_info and routes_desk
 
