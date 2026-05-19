@@ -54,6 +54,7 @@ class TestCategory(Enum):
     CLASSIFIER_COMPLAINT = "classifier_complaint"
     MULTI_QUESTION = "multi_question"
     FORWARD = "forward_to_reception"
+    REAL_WORLD_CSV = "real_world_csv"
 
 
 @dataclass

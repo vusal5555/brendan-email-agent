@@ -122,7 +122,29 @@ Output: "json {
     "has_questions": false,
     "extracted_questions": [],
     "language": "en"
-}"  
+}"
+
+Example 12 (noisy email with security banners and forwarded chain — extract the guest's actual question):
+Input: "CAUTION: This message was sent from outside your organization.sophospsmartbannerend
+
+Still hoping our two rooms can be side by side.
+
+From: Front Desk <stay@hotel.com> Sent: Tue, 15 Jul 2026 11:00 To: You
+Thanks — we will note your preferences.
+
+CAUTION: This message was sent from outside your organization.sophospsmartbannerend
+
+Still hoping our two rooms can be side by side.
+
+From: Maya Chen <maya@guest.com> Sent: Tue, 15 Jul 2026 08:40 To: Front Desk
+Booking #8841 for Aug 2–5. Still hoping our two rooms can be side by side."
+Output: "json {
+    "has_questions": true,
+    "extracted_questions": [
+        "Can our two rooms be side by side?"
+    ],
+    "language": "en"
+}"
 
 """
 
