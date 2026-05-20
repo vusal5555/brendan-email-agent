@@ -9,6 +9,10 @@ from db import engine
 from models import FaqChunk
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -153,4 +157,4 @@ def get_faqs():
 
 if __name__ == "__main__":
     get_faqs()
-    print("FAQs embedded successfully")
+    logger.info("FAQs embedded successfully")
