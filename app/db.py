@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
-from app.aws_secrets import get_secrets
+from aws_secrets import get_secrets
 
 
 load_dotenv()
