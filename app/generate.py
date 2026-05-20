@@ -27,7 +27,6 @@ Task:
 
 user_message = """
 Question: {question}
-Extracted Questions: {extracted_questions}
 FAQ Context: {faq_chunks}
 """
 
@@ -37,9 +36,7 @@ FAQ Context: {faq_chunks}
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=4, max=15),
 )
-def email_agent(
-    question: str, extracted_questions: list[str], chunks: list[FaqChunk]
-) -> str:
+def email_agent(question: str, chunks: list[FaqChunk]) -> str:
 
     faqs = "\n".join([chunk.embedding_input for chunk in chunks])
     response = client.converse(
@@ -52,7 +49,6 @@ def email_agent(
                     {
                         "text": user_message.format(
                             question=question,
-                            extracted_questions=extracted_questions,
                             faq_chunks=faqs,
                         )
                     }

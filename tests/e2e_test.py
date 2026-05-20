@@ -607,6 +607,23 @@ def response_is_canned_forward(text: str) -> bool:
     return lacks_info and routes_desk
 
 
+def action_from_answer_items(answer_items: list[dict]) -> tuple[str, float, str]:
+    if not answer_items:
+        return "forward", 0.0, ""
+
+    confidence = max(item["confidence"] for item in answer_items)
+    non_empty_answers = [item["answer"] for item in answer_items if item["answer"]]
+
+    if not non_empty_answers:
+        return "forward", confidence, ""
+
+    response_text = " ".join(non_empty_answers)
+    if response_is_canned_forward(response_text):
+        return "forward", confidence, response_text
+
+    return "answer", confidence, response_text
+
+
 def run_direct(test_case: TestCase) -> TestResult:
     from classifier import classify_question
     from retrieve import retrieve_faqs
@@ -686,60 +703,44 @@ def run_direct(test_case: TestCase) -> TestResult:
             duration_ms=duration,
         )
 
-    # Step 4: Retrieve FAQs
+    # Step 4: Retrieve and generate per extracted question (matches /answer)
+    from api import CONFIDENCE_THRESHOLD
+
     session = Session()
     try:
-        all_faqs = []
+        answer_items = []
         for question in extracted_questions:
             faqs = retrieve_faqs(
                 question, test_case.hotel_code, session, language=language
             )
-            all_faqs.extend(faqs)
+            if not faqs:
+                answer_items.append(
+                    {"question": question, "answer": "", "confidence": 0.0}
+                )
+                continue
+
+            distances = [item[1] for item in faqs]
+            confidence = 1 - min(distances)
+            if confidence >= CONFIDENCE_THRESHOLD:
+                chunks = [item[0] for item in faqs]
+                answer_text = email_agent(question, chunks)
+            else:
+                answer_text = ""
+
+            answer_items.append(
+                {
+                    "question": question,
+                    "answer": answer_text,
+                    "confidence": confidence,
+                }
+            )
     finally:
         session.close()
 
-    # Step 5: Determine action based on confidence
-    if len(all_faqs) == 0:
-        duration = (time.time() - start) * 1000
-        actual_action = "forward"
-        confidence = 0.0
-        response_text = "No FAQs found - would forward"
-        if test_case.expected_action == ExpectedAction.ANSWER:
-            failures.append("action: expected=answer, got=forward (no FAQs retrieved)")
-        return TestResult(
-            test_case=test_case,
-            passed=len(failures) == 0,
-            failures=failures,
-            actual_has_questions=has_questions,
-            actual_language=language,
-            actual_question_count=q_count,
-            actual_action=actual_action,
-            actual_confidence=confidence,
-            response_text=response_text,
-            duration_ms=duration,
-        )
-
-    chunks = [item[0] for item in all_faqs]
-    distances = [item[1] for item in all_faqs]
-    confidence = 1 - min(distances)
-
-    if confidence < 0.20:
-        actual_action = "forward"
-        from api import language_forward
-
-        response_text = language_forward.get(language, language_forward["en"])
-    else:
-        actual_action = "answer"
-        response_text = email_agent(test_case.email, extracted_questions, chunks)
-
+    effective_action, confidence, response_text = action_from_answer_items(
+        answer_items
+    )
     duration = (time.time() - start) * 1000
-
-    # Step 6: If the coded path was "answer" but the body matches a canned forward line or
-    # reads like a deferral to reception (see ``response_is_canned_forward``), classify as forward.
-    effective_action = actual_action
-    if actual_action == "answer" and response_text:
-        if response_is_canned_forward(response_text):
-            effective_action = "forward"
 
     if (
         test_case.expected_action == ExpectedAction.ANSWER
@@ -756,7 +757,7 @@ def run_direct(test_case: TestCase) -> TestResult:
             f"action: expected=forward, got={effective_action} (confidence={confidence:.3f})"
         )
 
-    # Step 7: Check topics if answering
+    # Step 5: Check topics if answering
     if effective_action == "answer" and test_case.expected_topics:
         response_lower = response_text.lower()
         missing_topics = [
@@ -812,19 +813,22 @@ def run_http(
         )
 
     duration = (time.time() - start) * 1000
-    answer = data.get("answer", "")
-    confidence = data.get("confidence", 0.0)
+    answers_list = data.get("answers", [])
 
-    # Determine actual action from response
-    is_forward = response_is_canned_forward(answer)
-    is_no_answer = answer in ("No answer found", "No question provided")
-
-    if is_no_answer:
+    if not answers_list:
         actual_action = "no_questions"
-    elif is_forward:
-        actual_action = "forward"
+        confidence = 0.0
+        answer = ""
     else:
-        actual_action = "answer"
+        answer_items = [
+            {
+                "question": item.get("question", ""),
+                "answer": item.get("answer", ""),
+                "confidence": item.get("confidence", 0.0),
+            }
+            for item in answers_list
+        ]
+        actual_action, confidence, answer = action_from_answer_items(answer_items)
 
     # Evaluate action
     if test_case.expected_action == ExpectedAction.ANSWER and actual_action != "answer":

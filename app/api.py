@@ -12,15 +12,22 @@ import json
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+CONFIDENCE_THRESHOLD = 0.20
+
 
 class AnswerRequest(BaseModel):
     hotel_code: str
     question: str
 
 
-class AnswerResponse(BaseModel):
+class QuestionAnswer(BaseModel):
+    question: str
     answer: str
     confidence: float
+
+
+class AnswerResponse(BaseModel):
+    answers: list[QuestionAnswer]
 
 
 app = FastAPI()
@@ -38,39 +45,45 @@ def answer(request: AnswerRequest, db: Session = Depends(get_db)):
         start_time = datetime.now()
         detected_language = None
         extracted_questions = []
-        top_chunk_distance = None
-        result_answer = ""
-        confidence = 0.0
+        answers: list[QuestionAnswer] = []
+        question_confidences: list[float] = []
 
-        if request.question.strip() == "":
-            result_answer = ""
-        else:
+        if request.question.strip() != "":
             classification = classify_question(request.question)
 
-            if not classification["has_questions"]:
-                result_answer = ""
-            else:
+            if classification["has_questions"]:
                 extracted_questions = classification["extracted_questions"]
                 detected_language = classification["language"]
-
-                all_faqs = []
 
                 for question in extracted_questions:
                     faqs = retrieve_faqs(
                         question, request.hotel_code, db, language=detected_language
                     )
-                    all_faqs.extend(faqs)
 
-                if len(all_faqs) == 0:
-                    result_answer = ""
-                else:
-                    chunks = [item[0] for item in all_faqs]
-                    distances = [item[1] for item in all_faqs]
-                    top_chunk_distance = min(distances)
-                    confidence = 1 - min(distances)
+                    if not faqs:
+                        question_confidences.append(0.0)
+                        answers.append(
+                            QuestionAnswer(question=question, answer="", confidence=0.0)
+                        )
+                        continue
 
-                    result_answer = email_agent(
-                        request.question, extracted_questions, chunks
+                    distances = [item[1] for item in faqs]
+                    question_top_distance = min(distances)
+
+                    confidence = 1 - question_top_distance
+                    question_confidences.append(confidence)
+                    if confidence >= CONFIDENCE_THRESHOLD:
+                        chunks = [item[0] for item in faqs]
+                        answer_text = email_agent(question, chunks)
+                    else:
+                        answer_text = ""
+
+                    answers.append(
+                        QuestionAnswer(
+                            question=question,
+                            answer=answer_text,
+                            confidence=confidence,
+                        )
                     )
 
         logger.info(
@@ -78,18 +91,15 @@ def answer(request: AnswerRequest, db: Session = Depends(get_db)):
                 {
                     "hotel_code": request.hotel_code,
                     "extracted_questions": extracted_questions,
+                    "question_confidences": question_confidences,
                     "detected_language": detected_language,
-                    "top_chunk_distance": top_chunk_distance,
                     "response_time": (datetime.now() - start_time).total_seconds()
                     * 1000,
                 }
             )
         )
 
-        return AnswerResponse(
-            answer=result_answer,
-            confidence=confidence,
-        )
+        return AnswerResponse(answers=answers)
 
     except Exception:
         logger.error(
