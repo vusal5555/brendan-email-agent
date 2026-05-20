@@ -1,11 +1,16 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
-import os
+from app.aws_secrets import get_secrets
+
 
 load_dotenv()
 
-engine = create_engine(os.getenv("DB_URL"), pool_pre_ping=True)
+
+db_url = get_secrets()
+
+# engine = create_engine(os.getenv("DB_URL"), pool_pre_ping=True)
+engine = create_engine(db_url, pool_pre_ping=True)
 Session = sessionmaker(bind=engine)
 
 
