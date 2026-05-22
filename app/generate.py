@@ -63,3 +63,94 @@ def email_agent(question: str, chunks: list[FaqChunk]) -> str:
         if "text" in block:
             return block["text"]
     raise ValueError("Model did not return a text block")
+
+
+faq_system_prompt = """
+Role: You generate hotel FAQ pairs from website page content for a guest-facing knowledge base.
+
+Task: From the page content provided, generate question-and-answer pairs that a hotel guest would realistically ask.
+
+Rules:
+1. Generate 3–7 Q/A pairs per chunk, depending on how much factual hotel information the text contains. Sparse chunks → fewer pairs; dense chunks → more (up to 7).
+2.Generate all Q/A pairs in specified language regardless of the source text language.
+2. Write questions and answers in the same language as the page content.
+3. Only create pairs where the answer is clearly supported by the text. Do not invent policies, prices, times, or amenities not stated in the content.
+4. Questions: natural guest style (e.g. "Do you have…?", "What time is…?", "Is … included?").
+5. Answers: direct, factual, concise—no greetings or filler.
+6. Skip boilerplate, navigation, or marketing fluff that does not answer a concrete guest question.
+7. If the chunk has almost no usable facts, return an empty faqs array.
+
+Output: Use the generate_faqs tool only. Do not include markdown, preamble, or any text outside the tool call.
+"""
+
+faq_user_message = """
+Page content:
+{chunk}
+Language: {language}
+"""
+
+faq_tool_config = {
+    "tools": [
+        {
+            "toolSpec": {
+                "name": "generate_faqs",
+                "description": "Generate hotel guest FAQ pairs supported by the page content.",
+                "inputSchema": {
+                    "json": {
+                        "type": "object",
+                        "properties": {
+                            "faqs": {
+                                "type": "array",
+                                "description": "3–7 Q/A pairs when content supports them; fewer or empty if sparse.",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "question": {
+                                            "type": "string",
+                                            "description": "Natural guest-style question",
+                                        },
+                                        "answer": {
+                                            "type": "string",
+                                            "description": "Direct factual answer from the text only",
+                                        },
+                                    },
+                                    "required": ["question", "answer"],
+                                },
+                            }
+                        },
+                        "required": ["faqs"],
+                    }
+                },
+            }
+        }
+    ],
+    "toolChoice": {"tool": {"name": "generate_faqs"}},
+}
+
+
+@retry(
+    retry=retry_if_exception_type(ClientError),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=15),
+)
+def faq_generator(chunk: str, language: str) -> list[dict[str, str]]:
+    response = client.converse(
+        modelId="eu.anthropic.claude-haiku-4-5-20251001-v1:0",
+        system=[{"text": faq_system_prompt}],
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"text": faq_user_message.format(chunk=chunk, language=language)}
+                ],
+            }
+        ],
+        inferenceConfig={"temperature": 0, "maxTokens": 1500},
+        toolConfig=faq_tool_config,
+    )
+
+    for block in response["output"]["message"]["content"]:
+        if "toolUse" in block:
+            return block["toolUse"]["input"]["faqs"]
+
+    raise ValueError("Model did not return a tool call")

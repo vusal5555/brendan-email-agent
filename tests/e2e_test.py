@@ -583,21 +583,15 @@ def _folded_matches_unavailable_hint(folded: str, hint: str) -> bool:
 def response_is_canned_forward(text: str) -> bool:
     """Detect API canned forwards and close paraphrases used when the model defers to the desk.
 
-    Exact match against ``language_forward`` is the fast path (case- and whitespace-sensitive
-    after collapsing spaces). The fallback requires both (1) language that the requested detail
-    is missing or out of scope and (2) directing the guest to reception or front desk, so answers
-    that only mention reception as optional contact do not qualify.
+    Requires both (1) language that the requested detail is missing or out of scope and
+    (2) directing the guest to reception or front desk, so answers that only mention reception
+    as optional contact do not qualify.
     """
-
-    from api import language_forward
 
     if not (text or "").strip():
         return False
 
     norm = _collapse_ws(text)
-    if any(norm == _collapse_ws(msg) for msg in language_forward.values()):
-        return True
-
     folded = _fold_for_match(norm)
     lacks_info = any(
         _folded_matches_unavailable_hint(folded, h)

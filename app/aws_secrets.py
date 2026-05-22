@@ -1,8 +1,8 @@
+import logging
+import os
 import boto3
 import json
 from urllib.parse import quote_plus
-import logging
-import os
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -23,5 +23,7 @@ def get_secrets():
         database = "postgres"
 
         return f"postgresql+psycopg2://{username}:{password}@{host}:{port}/{database}"
-    except Exception:
+
+    except Exception as e:
+        logger.error(f"Error getting secrets: {e}")
         return os.getenv("DB_URL")

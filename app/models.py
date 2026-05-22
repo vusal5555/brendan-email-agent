@@ -17,6 +17,7 @@ class FaqChunk(Base):
     embedding = Column(Vector(1024))
     language = Column(String(2), nullable=False)
     source_id = Column(Integer)
+    source_type = Column(String(255), default="mysql_faq", nullable=True)
     embedding_input = Column(Text, nullable=True)
     embedding_model = Column(String(255))
     source_updated_at = Column(DateTime, nullable=True)
