@@ -158,10 +158,11 @@ def crawl_website(request: WebsiteRequest):
         db = db_session()
         start_time = datetime.now(timezone.utc)
         logger.info("Starting crawl for %s", request.urls)
-        page_contents = []
+
         visited_urls = set()
 
         for url in request.urls:
+            page_contents = []
             response = requests.get(f"{url}/sitemap.xml")
             urls = parse_sitemap(response)
 
@@ -235,53 +236,58 @@ def crawl_website(request: WebsiteRequest):
 
             logger.info("Crawled %d pages", len(page_contents))
 
-        chunks = []
-        for page_content in page_contents:
-            chunks.extend(chunk_page_content(page_content.title, page_content.content))
+            db.query(FaqChunk).filter(FaqChunk.hotel_code == request.hotel_code).filter(
+                FaqChunk.language == request.language
+            ).filter(FaqChunk.source_type == "website").filter(
+                FaqChunk.source_origin == url
+            ).delete()
 
-        logger.info("Generated %d chunks", len(chunks))
-
-        if len(chunks) > 100:
-            chunks = chunks[:100]
-
-        db.query(FaqChunk).filter(FaqChunk.hotel_code == request.hotel_code).filter(
-            FaqChunk.language == request.language
-        ).filter(FaqChunk.source_type == "website").delete()
-
-        total_faqs = 0
-        total_chunks = len(chunks)
-        all_faqs = []
-        for i, chunk in enumerate(chunks, start=1):
-            logger.info("Processing chunk %d/%d", i, total_chunks)
-            faqs = faq_generator(chunk, request.language)
-            logger.info("Generated %d FAQs from chunk %d", len(faqs), i)
-            total_faqs += len(faqs)
-            all_faqs.extend(faqs)
-
-        all_embedding_inputs = ["Question: " + faq["question"] for faq in all_faqs]
-
-        all_embeddings = []
-
-        loop_embeddings = range(0, len(all_embedding_inputs), 100)
-        for i in loop_embeddings:
-            embeddings = embed_faqs(all_embedding_inputs[i : i + 100])
-            all_embeddings.extend(embeddings)
-
-        for faq, embedding in zip(all_faqs, all_embeddings):
-            db.add(
-                FaqChunk(
-                    hotel_code=request.hotel_code,
-                    question=faq["question"],
-                    answer=faq["answer"],
-                    embedding=embedding,
-                    language=request.language,
-                    source_type="website",
-                    embedding_input=f"Question: {faq['question']}\nAnswer: {faq['answer']}",
-                    embedding_model="amazon.titan-embed-text-v2:0",
+            chunks = []
+            for page_content in page_contents:
+                chunks.extend(
+                    chunk_page_content(page_content.title, page_content.content)
                 )
-            )
 
-        db.commit()
+            logger.info("Generated %d chunks", len(chunks))
+
+            if len(chunks) > 100:
+                chunks = chunks[:100]
+
+            total_faqs = 0
+            total_chunks = len(chunks)
+            all_faqs = []
+            for i, chunk in enumerate(chunks, start=1):
+                logger.info("Processing chunk %d/%d", i, total_chunks)
+                faqs = faq_generator(chunk, request.language)
+                logger.info("Generated %d FAQs from chunk %d", len(faqs), i)
+                total_faqs += len(faqs)
+                all_faqs.extend(faqs)
+
+            all_embedding_inputs = ["Question: " + faq["question"] for faq in all_faqs]
+
+            all_embeddings = []
+
+            loop_embeddings = range(0, len(all_embedding_inputs), 100)
+            for i in loop_embeddings:
+                embeddings = embed_faqs(all_embedding_inputs[i : i + 100])
+                all_embeddings.extend(embeddings)
+
+            for faq, embedding in zip(all_faqs, all_embeddings):
+                db.add(
+                    FaqChunk(
+                        hotel_code=request.hotel_code,
+                        source_origin=url,
+                        question=faq["question"],
+                        answer=faq["answer"],
+                        embedding=embedding,
+                        language=request.language,
+                        source_type="website",
+                        embedding_input=f"Question: {faq['question']}\nAnswer: {faq['answer']}",
+                        embedding_model="amazon.titan-embed-text-v2:0",
+                    )
+                )
+
+            db.commit()
         logger.info("Inserted %d FAQs for %s", total_faqs, request.hotel_code)
     except Exception:
         logger.error(

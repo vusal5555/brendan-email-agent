@@ -5,6 +5,7 @@ import json
 from urllib.parse import quote_plus
 
 logging.basicConfig(level=logging.INFO)
+
 logger = logging.getLogger(__name__)
 
 
