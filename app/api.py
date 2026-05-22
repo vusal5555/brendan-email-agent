@@ -1,19 +1,15 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from retrieve import retrieve_faqs
 from classifier import classify_question
-from generate import email_agent, faq_generator
-from models import FaqChunk
+from generate import email_agent
 from db import get_db
 from sqlalchemy.orm import Session
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 import json
-import requests
-from bs4 import BeautifulSoup
-import urllib.parse
-from helpers import parse_sitemap, cleaner, chunk_page_content, PAGE_CAP, JUNK_PATHS
-from embed_faqs import embed_text
+from helpers import crawl_website
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -38,7 +34,7 @@ class AnswerResponse(BaseModel):
 
 class WebsiteRequest(BaseModel):
     hotel_code: str
-    url: str
+    urls: list[str]
     language: str
 
 
@@ -56,129 +52,12 @@ def read_root():
 
 
 @app.post("/website")
-def ingest_website(request: WebsiteRequest, db: Session = Depends(get_db)):
-    try:
-        start_time = datetime.now(timezone.utc)
-        logger.info("Starting crawl for %s", request.url)
-        response = requests.get(f"{request.url}/sitemap.xml")
-        urls = parse_sitemap(response)
-        page_contents = []
-        visited_urls = set()
-        if urls:
-            for url_item in urls:
-                if url_item in visited_urls:
-                    continue
-                visited_urls.add(url_item)
-
-                if len(page_contents) >= PAGE_CAP:
-                    break
-                if any(path in url_item for path in JUNK_PATHS):
-                    continue
-
-                response = requests.get(url_item)
-
-                if response.status_code == 200:
-                    soup = BeautifulSoup(response.text, "html.parser")
-                    title = soup.title.string
-
-                    if title is None:
-                        title = ""
-                    content = cleaner(soup)
-                    page_contents.append(WebsiteResponse(title=title, content=content))
-
-        else:
-            response = requests.get(request.url)
-
-            if response.status_code == 200:
-                soup = BeautifulSoup(response.text, "html.parser")
-                title = soup.title.string
-                if title is None:
-                    title = ""
-
-                hrefs = [link.get("href") for link in soup.find_all("a")]
-                content = cleaner(soup)
-                page_contents.append(WebsiteResponse(title=title, content=content))
-
-                visited_urls.add(request.url)
-
-                for href in hrefs:
-                    if len(page_contents) >= PAGE_CAP:
-                        break
-                    if href is None:
-                        continue
-                    if any(path in href for path in JUNK_PATHS):
-                        continue
-
-                    absolute_url = urllib.parse.urljoin(request.url, href)
-
-                    if absolute_url in visited_urls:
-                        continue
-                    visited_urls.add(absolute_url)
-
-                    if (
-                        urllib.parse.urlparse(absolute_url).netloc
-                        != urllib.parse.urlparse(request.url).netloc
-                    ):
-                        continue
-                    response = requests.get(absolute_url)
-
-                    if response.status_code == 200:
-                        soup = BeautifulSoup(response.text, "html.parser")
-                        soup.title.string if soup.title else ""
-                        content = cleaner(soup)
-                        page_contents.append(
-                            WebsiteResponse(title=title, content=content)
-                        )
-
-        logger.info("Crawled %d pages", len(page_contents))
-
-        chunks = []
-        for page_content in page_contents:
-            chunks.extend(chunk_page_content(page_content.title, page_content.content))
-
-        logger.info("Generated %d chunks", len(chunks))
-
-        db.query(FaqChunk).filter(FaqChunk.hotel_code == request.hotel_code).filter(
-            FaqChunk.language == request.language
-        ).filter(FaqChunk.source_type == "website").delete()
-
-        total_faqs = 0
-        total_chunks = len(chunks)
-        for i, chunk in enumerate(chunks, start=1):
-            logger.info("Processing chunk %d/%d", i, total_chunks)
-            faqs = faq_generator(chunk, request.language)
-            logger.info("Generated %d FAQs from chunk %d", len(faqs), i)
-            total_faqs += len(faqs)
-            for faq in faqs:
-                db.add(
-                    FaqChunk(
-                        hotel_code=request.hotel_code,
-                        question=faq["question"],
-                        answer=faq["answer"],
-                        language=request.language,
-                        embedding=embed_text("Question: " + faq["question"]),
-                        embedding_input=f"Question: {faq['question']}\nAnswer: {faq['answer']}",
-                        embedding_model="amazon.titan-embed-text-v2:0",
-                        source_type="website",
-                    )
-                )
-        db.commit()
-        logger.info("Inserted %d FAQs for %s", total_faqs, request.hotel_code)
-    except Exception:
-        logger.error(
-            json.dumps(
-                {
-                    "hotel_code": request.hotel_code,
-                    "url": request.url,
-                    "response_time": (
-                        datetime.now(timezone.utc) - start_time
-                    ).total_seconds()
-                    * 1000,
-                }
-            ),
-            exc_info=True,
-        )
-        raise HTTPException(status_code=500, detail="Service temporarily unavailable")
+async def ingest_website(
+    request: WebsiteRequest,
+    background_tasks: BackgroundTasks,
+):
+    background_tasks.add_task(crawl_website, request)
+    return {"message": "Website ingestion started"}
 
 
 @app.post("/answer")
