@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, UploadFile, File, Form
 from pydantic import BaseModel
 from retrieve import retrieve_faqs
 from classifier import classify_question
@@ -8,13 +8,15 @@ from sqlalchemy.orm import Session
 import logging
 from datetime import datetime
 import json
-from helpers import crawl_website
+from helpers import crawl_website, ingest_pdf, PdfRequest
 
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 CONFIDENCE_THRESHOLD = 0.20
+MAX_PDF_BYTES = 10 * 1024 * 1024
+PDF_MAGIC = b"%PDF"
 
 
 class AnswerRequest(BaseModel):
@@ -38,11 +40,6 @@ class WebsiteRequest(BaseModel):
     language: str
 
 
-class WebsiteResponse(BaseModel):
-    title: str
-    content: str
-
-
 app = FastAPI()
 
 
@@ -58,6 +55,40 @@ async def ingest_website(
 ):
     background_tasks.add_task(crawl_website, request)
     return {"message": "Website ingestion started"}
+
+
+@app.post("/pdf")
+async def ingest_pdf_endpoint(
+    background_tasks: BackgroundTasks,
+    pdf_file: UploadFile = File(...),
+    hotel_code: str = Form(...),
+    language: str = Form(...),
+):
+    pdf_bytes = await pdf_file.read()
+
+    if pdf_file.content_type and pdf_file.content_type not in (
+        "application/pdf",
+        "application/x-pdf",
+    ):
+        raise HTTPException(status_code=400, detail="File must be a PDF")
+
+    if len(pdf_bytes) > MAX_PDF_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"PDF exceeds maximum size of {MAX_PDF_BYTES // (1024 * 1024)}MB",
+        )
+
+    if not pdf_bytes.startswith(PDF_MAGIC):
+        raise HTTPException(status_code=400, detail="File is not a valid PDF")
+
+    request = PdfRequest(
+        hotel_code=hotel_code,
+        pdf_file=pdf_bytes,
+        language=language,
+        filename=pdf_file.filename or "unknown.pdf",
+    )
+    background_tasks.add_task(ingest_pdf, request)
+    return {"message": "PDF ingestion started"}
 
 
 @app.post("/answer")

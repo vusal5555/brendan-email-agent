@@ -1,7 +1,6 @@
 import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
 import re
-from aws_bedrock import get_bedrock_client
 from pydantic import BaseModel
 from generate import faq_generator
 from models import FaqChunk
@@ -12,11 +11,10 @@ import json
 import requests
 import urllib.parse
 from embed_faqs import embed_faqs
+import pymupdf
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-CONFIDENCE_THRESHOLD = 0.20
 
 
 class WebsiteRequest(BaseModel):
@@ -30,7 +28,12 @@ class WebsiteResponse(BaseModel):
     content: str
 
 
-client = get_bedrock_client()
+class PdfRequest(BaseModel):
+    hotel_code: str
+    pdf_file: bytes
+    language: str
+    filename: str
+
 
 CONFIDENCE_THRESHOLD = 0.20
 PAGE_CAP = 50
@@ -305,3 +308,122 @@ def crawl_website(request: WebsiteRequest):
         )
     finally:
         db.close()
+
+
+def ingest_pdf(request: PdfRequest):
+    db = None
+    doc = None
+    start_time = None
+    try:
+        start_time = datetime.now(timezone.utc)
+        logger.info(
+            "Starting PDF ingest for %s (hotel=%s, language=%s)",
+            request.filename,
+            request.hotel_code,
+            request.language,
+        )
+        db = db_session()
+        doc = pymupdf.open(stream=request.pdf_file, filetype="pdf")
+
+        page_texts: list[str] = []
+        for page in doc:
+            text = page.get_text().strip()
+            if text:
+                page_texts.append(text)
+
+        if not page_texts:
+            logger.warning(
+                "No text extracted from PDF %s for %s",
+                request.filename,
+                request.hotel_code,
+            )
+            return
+
+        chunks: list[str] = []
+        for page_text in page_texts:
+            chunks.extend(chunk_page_content("", page_text))
+
+        if not chunks:
+            logger.warning(
+                "Text extracted from PDF %s for %s but no chunks met minimum size (%d chars)",
+                request.filename,
+                request.hotel_code,
+                MIN_CHUNK_CHARS,
+            )
+            return
+
+        logger.info("Generated %d chunks from PDF %s", len(chunks), request.filename)
+
+        if len(chunks) > 100:
+            chunks = chunks[:100]
+
+        db.query(FaqChunk).filter(FaqChunk.hotel_code == request.hotel_code).filter(
+            FaqChunk.language == request.language
+        ).filter(FaqChunk.source_type == "pdf").filter(
+            FaqChunk.source_origin == request.filename
+        ).delete()
+
+        all_faqs = []
+        total_chunks = len(chunks)
+        for i, chunk in enumerate(chunks, start=1):
+            logger.info("Processing chunk %d/%d", i, total_chunks)
+            faqs = faq_generator(chunk, request.language)
+            logger.info("Generated %d FAQs from chunk %d", len(faqs), i)
+            all_faqs.extend(faqs)
+
+        all_embedding_inputs = ["Question: " + faq["question"] for faq in all_faqs]
+        all_embeddings = []
+        for i in range(0, len(all_embedding_inputs), 100):
+            embeddings = embed_faqs(all_embedding_inputs[i : i + 100])
+            all_embeddings.extend(embeddings)
+
+        for faq, embedding in zip(all_faqs, all_embeddings):
+            db.add(
+                FaqChunk(
+                    hotel_code=request.hotel_code,
+                    source_origin=request.filename,
+                    question=faq["question"],
+                    answer=faq["answer"],
+                    embedding=embedding,
+                    language=request.language,
+                    source_type="pdf",
+                    embedding_input=f"Question: {faq['question']}\nAnswer: {faq['answer']}",
+                    embedding_model="amazon.titan-embed-text-v2:0",
+                )
+            )
+
+        db.commit()
+        if not all_faqs:
+            logger.warning(
+                "PDF %s for %s produced zero FAQs from %d chunks; old rows were removed",
+                request.filename,
+                request.hotel_code,
+                total_chunks,
+            )
+        else:
+            logger.info(
+                "Inserted %d FAQs for %s from PDF %s",
+                len(all_faqs),
+                request.hotel_code,
+                request.filename,
+            )
+
+    except Exception:
+        logger.error(
+            json.dumps(
+                {
+                    "hotel_code": request.hotel_code,
+                    "filename": request.filename,
+                    "response_time": (
+                        datetime.now(timezone.utc) - start_time
+                    ).total_seconds()
+                    * 1000,
+                }
+            ),
+            exc_info=True,
+        )
+    finally:
+        if doc is not None:
+            doc.close()
+        if db is not None:
+            db.close()
