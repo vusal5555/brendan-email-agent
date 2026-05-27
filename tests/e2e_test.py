@@ -601,6 +601,38 @@ def response_is_canned_forward(text: str) -> bool:
     return lacks_info and routes_desk
 
 
+def validate_matched_faqs(answer_items: list[dict]) -> list[str]:
+    failures = []
+    for item_idx, item in enumerate(answer_items):
+        matched = item.get("matched_faqs")
+        if matched is None:
+            failures.append(f"answers[{item_idx}] missing matched_faqs")
+            continue
+        if not isinstance(matched, list):
+            failures.append(f"answers[{item_idx}].matched_faqs must be a list")
+            continue
+
+        distances: list[float] = []
+        for faq_idx, faq in enumerate(matched):
+            for field in ("id", "distance", "rank"):
+                if field not in faq:
+                    failures.append(
+                        f"answers[{item_idx}].matched_faqs[{faq_idx}] missing {field}"
+                    )
+            if faq.get("rank") != faq_idx + 1:
+                failures.append(
+                    f"answers[{item_idx}].matched_faqs[{faq_idx}] rank must be {faq_idx + 1}"
+                )
+            distances.append(float(faq["distance"]))
+
+        if distances and distances != sorted(distances):
+            failures.append(
+                f"answers[{item_idx}].matched_faqs must be ordered by ascending distance"
+            )
+
+    return failures
+
+
 def action_from_answer_items(answer_items: list[dict]) -> tuple[str, float, str]:
     if not answer_items:
         return "forward", 0.0, ""
@@ -698,7 +730,7 @@ def run_direct(test_case: TestCase) -> TestResult:
         )
 
     # Step 4: Retrieve and generate per extracted question (matches /answer)
-    from api import CONFIDENCE_THRESHOLD
+    from api import CONFIDENCE_THRESHOLD, build_matched_faqs
 
     session = Session()
     try:
@@ -709,10 +741,16 @@ def run_direct(test_case: TestCase) -> TestResult:
             )
             if not faqs:
                 answer_items.append(
-                    {"question": question, "answer": "", "confidence": 0.0}
+                    {
+                        "question": question,
+                        "answer": "",
+                        "confidence": 0.0,
+                        "matched_faqs": [],
+                    }
                 )
                 continue
 
+            matched_faqs = build_matched_faqs(faqs)
             distances = [item[1] for item in faqs]
             confidence = 1 - min(distances)
             if confidence >= CONFIDENCE_THRESHOLD:
@@ -726,10 +764,13 @@ def run_direct(test_case: TestCase) -> TestResult:
                     "question": question,
                     "answer": answer_text,
                     "confidence": confidence,
+                    "matched_faqs": [faq.model_dump() for faq in matched_faqs],
                 }
             )
     finally:
         session.close()
+
+    failures.extend(validate_matched_faqs(answer_items))
 
     effective_action, confidence, response_text = action_from_answer_items(
         answer_items
@@ -819,9 +860,11 @@ def run_http(
                 "question": item.get("question", ""),
                 "answer": item.get("answer", ""),
                 "confidence": item.get("confidence", 0.0),
+                "matched_faqs": item.get("matched_faqs", []),
             }
             for item in answers_list
         ]
+        failures.extend(validate_matched_faqs(answer_items))
         actual_action, confidence, answer = action_from_answer_items(answer_items)
 
     # Evaluate action

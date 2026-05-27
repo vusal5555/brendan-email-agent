@@ -1,4 +1,12 @@
-from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, UploadFile, File, Form
+from fastapi import (
+    FastAPI,
+    Depends,
+    HTTPException,
+    BackgroundTasks,
+    UploadFile,
+    File,
+    Form,
+)
 from pydantic import BaseModel
 from retrieve import retrieve_faqs
 from classifier import classify_question
@@ -24,10 +32,20 @@ class AnswerRequest(BaseModel):
     question: str
 
 
+class MatchedFaq(BaseModel):
+    id: int
+    source_id: int | None = None
+    question: str | None = None
+    source_type: str | None = None
+    distance: float
+    rank: int
+
+
 class QuestionAnswer(BaseModel):
     question: str
     answer: str
     confidence: float
+    matched_faqs: list[MatchedFaq] = []
 
 
 class AnswerResponse(BaseModel):
@@ -38,6 +56,20 @@ class WebsiteRequest(BaseModel):
     hotel_code: str
     urls: list[str]
     language: str
+
+
+def build_matched_faqs(faqs: list[tuple]) -> list[MatchedFaq]:
+    return [
+        MatchedFaq(
+            id=chunk.id,
+            source_id=chunk.source_id,
+            question=chunk.question,
+            source_type=chunk.source_type,
+            distance=float(distance),
+            rank=rank,
+        )
+        for rank, (chunk, distance) in enumerate(faqs, start=1)
+    ]
 
 
 app = FastAPI()
@@ -116,10 +148,16 @@ def answer(request: AnswerRequest, db: Session = Depends(get_db)):
                     if not faqs:
                         question_confidences.append(0.0)
                         answers.append(
-                            QuestionAnswer(question=question, answer="", confidence=0.0)
+                            QuestionAnswer(
+                                question=question,
+                                answer="",
+                                confidence=0.0,
+                                matched_faqs=[],
+                            )
                         )
                         continue
 
+                    matched_faqs = build_matched_faqs(faqs)
                     distances = [item[1] for item in faqs]
                     question_top_distance = min(distances)
 
@@ -136,6 +174,7 @@ def answer(request: AnswerRequest, db: Session = Depends(get_db)):
                             question=question,
                             answer=answer_text,
                             confidence=confidence,
+                            matched_faqs=matched_faqs,
                         )
                     )
 
